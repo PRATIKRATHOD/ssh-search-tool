@@ -1,0 +1,23 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'com.jcraft:jsch:0.1.55'   // SSH library
+    implementation 'org.openjfx:javafx-controls:20' // JavaFX UI
+}
+
+application {
+    mainClass = 'com.example.sshsearch.App'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(20)
+    }
+}
