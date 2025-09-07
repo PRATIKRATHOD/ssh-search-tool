@@ -1,23 +1,26 @@
 plugins {
     id 'java'
     id 'application'
+    id 'org.openjfx.javafxplugin' version '0.0.14'
 }
+
+group 'com.example'
+version '1.0'
 
 repositories {
     mavenCentral()
 }
 
+javafx {
+    version = "20.0.1"
+    modules = [ 'javafx.controls', 'javafx.fxml' ]
+}
+
 dependencies {
-    implementation 'com.jcraft:jsch:0.1.55'   // SSH library
-    implementation 'org.openjfx:javafx-controls:20' // JavaFX UI
+    implementation 'com.jcraft:jsch:0.1.55'
+
 }
 
 application {
-    mainClass = 'com.example.sshsearch.App'
-}
-
-java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(20)
-    }
+    mainClass = 'com.example.sshsearch.MainApp'
 }
