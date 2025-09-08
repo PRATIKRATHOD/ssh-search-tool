@@ -1,154 +1,324 @@
 package com.example.sshsearch;
 
-import java.io.BufferedReader;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-
-import com.jcraft.jsch.ChannelExec;
-import com.jcraft.jsch.JSch;
-import com.jcraft.jsch.Session;
-
 import javafx.application.Application;
 import javafx.application.Platform;
+import javafx.beans.property.SimpleStringProperty;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
-import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
-import javafx.scene.text.Font;
 import javafx.stage.Stage;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
 public class MainApp extends Application {
+
+    private TextField hostField, portField, userField, keywordField, pathField;
+    private PasswordField passField;
+    private TextArea resultArea;
+    private ListView<String> dirListView;
+    private Label statusLabel;
+
+    private TableView<LogResult> logTable;
+    private ObservableList<LogResult> logData;
+
+    private SSHConnector sshConnector;
+    private FileSearchService fileService;
 
     @Override
     public void start(Stage stage) {
         // Input fields
-        TextField hostField = new TextField("localhost");
-        TextField portField = new TextField("22");
-        TextField userField = new TextField("pratik");
-        PasswordField passField = new PasswordField();
+        hostField = new TextField("localhost");
+        portField = new TextField("22");
+        userField = new TextField("pratik");
+        passField = new PasswordField();
         passField.setPromptText("Ubuntu password");
-        TextField keywordField = new TextField("ERROR");
+        keywordField = new TextField("ERROR");
+        pathField = new TextField("/home/pratik/");
 
         // Buttons
+        Button connectButton = new Button("Connect");
+        Button disconnectButton = new Button("Disconnect");
         Button searchButton = new Button("🔍 Search Logs");
+        Button listDirButton = new Button("📂 List Directory");
         Button clearButton = new Button("🧹 Clear");
 
-        // Result area
-        TextArea resultArea = new TextArea();
+        // Directory & file list
+        dirListView = new ListView<>();
+        dirListView.setPrefWidth(320);
+
+        // Result area (for file content only)
+        resultArea = new TextArea();
         resultArea.setEditable(false);
         resultArea.setWrapText(true);
-        resultArea.setFont(Font.font("Consolas", 13));
-        resultArea.setStyle("-fx-control-inner-background: black; -fx-text-fill: lime;");
+        resultArea.setStyle("-fx-control-inner-background: #1E1E1E; -fx-text-fill: lime;");
+
+        // TableView for search results
+        logTable = new TableView<>();
+        logData = FXCollections.observableArrayList();
+        TableColumn<LogResult, String> fileCol = new TableColumn<>("File");
+        fileCol.setCellValueFactory(d -> new SimpleStringProperty(d.getValue().file));
+
+        TableColumn<LogResult, String> lineCol = new TableColumn<>("Line");
+        lineCol.setCellValueFactory(d -> new SimpleStringProperty(d.getValue().line));
+
+        TableColumn<LogResult, String> contentCol = new TableColumn<>("Content");
+        contentCol.setCellValueFactory(d -> new SimpleStringProperty(d.getValue().content));
+
+        fileCol.setPrefWidth(250);
+        lineCol.setPrefWidth(70);
+        contentCol.setPrefWidth(600);
+
+        logTable.getColumns().addAll(fileCol, lineCol, contentCol);
+        logTable.setItems(logData);
 
         // Status bar
-        Label statusLabel = new Label("Disconnected");
+        statusLabel = new Label("Disconnected");
         statusLabel.setTextFill(Color.DARKGRAY);
 
         // Layout
-        GridPane form = new GridPane();
-        form.setHgap(10);
-        form.setVgap(10);
-        form.setPadding(new Insets(10));
+        GridPane formGrid = new GridPane();
+        formGrid.setHgap(8);
+        formGrid.setVgap(8);
+        formGrid.setPadding(new Insets(10));
+        formGrid.add(new Label("Host:"), 0, 0);
+        formGrid.add(hostField, 1, 0);
+        formGrid.add(new Label("Port:"), 2, 0);
+        formGrid.add(portField, 3, 0);
+        formGrid.add(new Label("User:"), 0, 1);
+        formGrid.add(userField, 1, 1);
+        formGrid.add(new Label("Password:"), 2, 1);
+        formGrid.add(passField, 3, 1);
+        formGrid.add(new Label("Path:"), 0, 2);
+        formGrid.add(pathField, 1, 2, 3, 1);
+        formGrid.add(new Label("Keyword:"), 0, 3);
+        formGrid.add(keywordField, 1, 3);
 
-        form.add(new Label("Host:"), 0, 0);
-        form.add(hostField, 1, 0);
+        HBox topButtons = new HBox(8, connectButton, disconnectButton, listDirButton, searchButton, clearButton);
+        topButtons.setPadding(new Insets(6));
 
-        form.add(new Label("Port:"), 0, 1);
-        form.add(portField, 1, 1);
+        VBox leftBox = new VBox(8, new Label("Directories / Files"), dirListView);
+        leftBox.setPadding(new Insets(8));
+        leftBox.setPrefWidth(360);
 
-        form.add(new Label("Username:"), 0, 2);
-        form.add(userField, 1, 2);
+        VBox fileBox = new VBox(4, new Label("File Content"), resultArea);
+        VBox.setVgrow(resultArea, Priority.ALWAYS);
 
-        form.add(new Label("Password:"), 0, 3);
-        form.add(passField, 1, 3);
+        VBox searchBox = new VBox(4, new Label("Search Results"), logTable);
+        VBox.setVgrow(logTable, Priority.ALWAYS);
 
-        form.add(new Label("Keyword:"), 0, 4);
-        form.add(keywordField, 1, 4);
+        VBox rightBox = new VBox(12, fileBox, searchBox);
+        rightBox.setPadding(new Insets(8));
 
-        HBox buttons = new HBox(10, searchButton, clearButton);
-        buttons.setAlignment(Pos.CENTER_RIGHT);
-        form.add(buttons, 1, 5);
+        SplitPane splitPane = new SplitPane(leftBox, rightBox);
+        splitPane.setDividerPositions(0.35);
 
-        VBox layout = new VBox(10, form, resultArea, statusLabel);
-        layout.setPadding(new Insets(10));
+        BorderPane root = new BorderPane();
+        root.setTop(new VBox(formGrid, topButtons));
+        root.setCenter(splitPane);
+        root.setBottom(statusLabel);
 
-        Scene scene = new Scene(layout, 650, 500);
+        Scene scene = new Scene(root, 1200, 800);
         stage.setScene(scene);
-        stage.setTitle("🚀 SSH Log Search Tool");
+        stage.setTitle("SSH Log Search & Browser Tool");
         stage.show();
 
         // Actions
-        clearButton.setOnAction(e -> resultArea.clear());
-
-        searchButton.setOnAction(e -> {
-            Platform.runLater(() -> {
-                resultArea.setText("🔎 Searching...\n");
-                statusLabel.setText("Connecting to SSH...");
-                statusLabel.setTextFill(Color.ORANGE);
-            });
-
-            String host = hostField.getText();
-            int port = Integer.parseInt(portField.getText());
-            String user = userField.getText();
-            String password = passField.getText();
-            String keyword = keywordField.getText();
-
-            new Thread(() -> {
-                try {
-                    JSch jsch = new JSch();
-                    Session session = jsch.getSession(user, host, port);
-                    session.setPassword(password);
-                    session.setConfig("StrictHostKeyChecking", "no");
-                    session.connect();
-
-                    Platform.runLater(() -> {
-                        statusLabel.setText("Connected ✔");
-                        statusLabel.setTextFill(Color.GREEN);
-                    });
-
-                    ChannelExec channel = (ChannelExec) session.openChannel("exec");
-                    String command = "rg --with-filename '" + keyword +
-                            "' /home/pratik/testlogs --glob '*.log' || echo 'No matching logs found'";
-                    channel.setCommand(command);
-                    channel.setErrStream(System.err);
-
-                    InputStream in = channel.getInputStream();
-                    channel.connect();
-
-                    StringBuilder output = new StringBuilder();
-                    BufferedReader reader = new BufferedReader(new InputStreamReader(in));
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        output.append(line).append("\n");
-                    }
-
-                    String resultText = output.toString();
-                    if (resultText.isBlank()) {
-                        resultText = "⚠ No results found!";
-                    }
-
-                    final String finalResult = resultText;
-                    Platform.runLater(() -> {
-                        resultArea.setText(finalResult);
-                        statusLabel.setText("Search complete ✅");
-                        statusLabel.setTextFill(Color.LIMEGREEN);
-                    });
-
-                    channel.disconnect();
-                    session.disconnect();
-
-                } catch (Exception ex) {
-                    final String errorMsg = "❌ Error: " + ex.getMessage();
-                    Platform.runLater(() -> {
-                        resultArea.setText(errorMsg);
-                        statusLabel.setText("Connection failed ❌");
-                        statusLabel.setTextFill(Color.RED);
-                    });
-                }
-            }).start();
+        connectButton.setOnAction(e -> connect());
+        disconnectButton.setOnAction(e -> disconnect());
+        listDirButton.setOnAction(e -> listDirectoryContents(pathField.getText()));
+        searchButton.setOnAction(e -> searchLogs());
+        clearButton.setOnAction(e -> {
+            resultArea.clear();
+            logData.clear();
         });
+
+        dirListView.setOnMouseClicked(evt -> {
+            if (evt.getClickCount() == 2) {
+                String selected = dirListView.getSelectionModel().getSelectedItem();
+                if (selected == null) return;
+                try {
+                    if (selected.equals("..")) {
+                        goUp();
+                    } else if (selected.endsWith("/")) {
+                        String newPath = normalizePath(pathField.getText()) + selected;
+                        pathField.setText(newPath);
+                        listDirectoryContents(newPath);
+                    } else {
+                        String filePath = normalizePath(pathField.getText()) + selected;
+                        showFileContent(filePath);
+                    }
+                } catch (Exception ex) {
+                    setStatus("Error: " + ex.getMessage(), Color.RED);
+                }
+            }
+        });
+
+        setStatus("Disconnected", Color.DARKGRAY);
+    }
+
+    private void connect() {
+        setStatus("Connecting...", Color.ORANGE);
+        resultArea.setText("");
+        new Thread(() -> {
+            try {
+                String host = hostField.getText().trim();
+                int port = Integer.parseInt(portField.getText().trim());
+                String user = userField.getText().trim();
+                String pass = passField.getText();
+
+                sshConnector = new SSHConnector(host, port, user, pass);
+                sshConnector.runCommand("echo connected");
+                fileService = new FileSearchService(sshConnector);
+
+                Platform.runLater(() -> setStatus("Connected ✔", Color.LIMEGREEN));
+            } catch (Exception ex) {
+                Platform.runLater(() -> setStatus("Connection failed: " + ex.getMessage(), Color.RED));
+                if (sshConnector != null) sshConnector.disconnect();
+            }
+        }).start();
+    }
+
+    private void disconnect() {
+        setStatus("Disconnecting...", Color.ORANGE);
+        new Thread(() -> {
+            try {
+                if (sshConnector != null) sshConnector.disconnect();
+            } finally {
+                sshConnector = null;
+                fileService = null;
+                Platform.runLater(() -> setStatus("Disconnected", Color.DARKGRAY));
+            }
+        }).start();
+    }
+
+    private void listDirectoryContents(String path) {
+        if (fileService == null) {
+            setStatus("Not connected", Color.RED);
+            return;
+        }
+
+        setStatus("Fetching directory contents...", Color.ORANGE);
+        resultArea.setText("");
+        new Thread(() -> {
+            try {
+                String normalized = normalizePath(path);
+
+                String dirOut = fileService.listDirectories(normalized);
+                String fileOut = fileService.listFiles(normalized);
+
+                List<String> dirs = dirOut.isBlank() ? new ArrayList<>() : Arrays.asList(dirOut.split("\n"));
+                List<String> files = fileOut.isBlank() ? new ArrayList<>() : Arrays.asList(fileOut.split("\n"));
+
+                List<String> items = new ArrayList<>();
+                if (!normalized.equals("/")) items.add("..");
+                dirs.stream().map(String::trim).filter(s -> !s.isEmpty()).forEach(items::add);
+                files.stream().map(String::trim).filter(s -> !s.isEmpty()).forEach(items::add);
+
+                Platform.runLater(() -> {
+                    dirListView.getItems().setAll(items);
+                    setStatus("Directory contents listed ✅", Color.LIMEGREEN);
+                });
+            } catch (Exception ex) {
+                Platform.runLater(() -> {
+                    resultArea.setText("❌ Error: " + ex.getMessage());
+                    setStatus("Failed to list directory", Color.RED);
+                });
+            }
+        }).start();
+    }
+
+    private void searchLogs() {
+        if (fileService == null) {
+            setStatus("Not connected", Color.RED);
+            return;
+        }
+        String keyword = keywordField.getText().trim();
+        String path = normalizePath(pathField.getText());
+        setStatus("Searching logs...", Color.ORANGE);
+        logData.clear();
+
+        new Thread(() -> {
+            try {
+                String out = fileService.searchLogs(keyword, path);
+                String[] lines = out.split("\n");
+                for (String line : lines) {
+                    if (line.isBlank()) continue;
+                    String[] parts = line.split(":", 3);
+                    if (parts.length == 3) {
+                        logData.add(new LogResult(parts[0], parts[1], parts[2]));
+                    }
+                }
+                Platform.runLater(() -> setStatus("Search complete ✅", Color.LIMEGREEN));
+            } catch (Exception ex) {
+                Platform.runLater(() -> setStatus("Search failed ❌", Color.RED));
+            }
+        }).start();
+    }
+
+    private void showFileContent(String filePath) {
+        if (fileService == null) {
+            setStatus("Not connected", Color.RED);
+            return;
+        }
+        setStatus("Loading file...", Color.ORANGE);
+        resultArea.setText("Loading " + filePath + " ...\n");
+        new Thread(() -> {
+            try {
+                String content = fileService.readFileContent(filePath);
+                Platform.runLater(() -> {
+                    resultArea.setText(content);
+                    setStatus("File loaded ✅", Color.LIMEGREEN);
+                });
+            } catch (Exception ex) {
+                Platform.runLater(() -> {
+                    resultArea.setText("❌ Error: " + ex.getMessage());
+                    setStatus("Failed to load file ❌", Color.RED);
+                });
+            }
+        }).start();
+    }
+
+    private void goUp() {
+        String current = pathField.getText().trim();
+        if (current.equals("/")) return;
+        if (current.endsWith("/")) current = current.substring(0, current.length() - 1);
+        int idx = current.lastIndexOf('/');
+        String parent = idx > 0 ? current.substring(0, idx) : "/";
+        if (!parent.endsWith("/")) parent = parent + "/";
+        pathField.setText(parent);
+        listDirectoryContents(parent);
+    }
+
+    private String normalizePath(String p) {
+        if (p == null || p.isBlank()) return "/";
+        String path = p.trim();
+        if (!path.endsWith("/")) path = path + "/";
+        return path;
+    }
+
+    private void setStatus(String text, Color color) {
+        Platform.runLater(() -> {
+            statusLabel.setText(text);
+            statusLabel.setTextFill(color);
+        });
+    }
+
+    public static class LogResult {
+        String file;
+        String line;
+        String content;
+
+        LogResult(String file, String line, String content) {
+            this.file = file;
+            this.line = line;
+            this.content = content;
+        }
     }
 
     public static void main(String[] args) {
