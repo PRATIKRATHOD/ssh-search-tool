@@ -12,10 +12,18 @@ public class FileSearchService {
      * Search keyword inside .log files under given path (non-recursive recursion depends on grep flags).
      */
     public String searchLogs(String keyword, String path) throws Exception {
-        // Use grep recursively for portability. If ripgrep (rg) is installed you can replace this with rg.
-        String safeKeyword = keyword.replace("'", "'\"'\"'"); // basic escaping of single quote
-        String command = "grep -R --line-number --include='*.log' '" + safeKeyword + "' '" + path + "' 2>/dev/null || echo 'No matching logs found'";
+                        String safeKeyword = keyword.replace("'", "'\"'\"'");
+        String command =
+            "rg -n --no-heading --no-messages \"" + safeKeyword + "\" " + path +
+            " | awk -F: '{file=$1; line=$2; sub($1\":\"$2\":\",\"\",$0); content=$0; " +
+            "cmd=\"stat -c \\\"%y\\\" \\\"\"file\"\\\" | cut -d\\\".\\\" -f1\"; " +
+            "cmd | getline ts; close(cmd); " +
+            "cmd=\"date -d \\\"\"ts\"\\\" +\\\"%d-%m-%Y %H:%M:%S\\\"\"; " +
+            "cmd | getline tsfmt; close(cmd); " +
+            "print file \"|\" line \"|\" tsfmt \"|\" content;}'";
+
         return connector.runCommand(command);
+
     }
 
     /**

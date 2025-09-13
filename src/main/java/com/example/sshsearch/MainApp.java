@@ -70,11 +70,15 @@ public class MainApp extends Application {
         TableColumn<LogResult, String> contentCol = new TableColumn<>("Content");
         contentCol.setCellValueFactory(d -> new SimpleStringProperty(d.getValue().content));
 
+        TableColumn<LogResult, String> tsCol = new TableColumn<>("Timestamp");
+        tsCol.setCellValueFactory(d -> new SimpleStringProperty(d.getValue().timestamp));
+        tsCol.setPrefWidth(160);    
+
         fileCol.setPrefWidth(250);
         lineCol.setPrefWidth(70);
         contentCol.setPrefWidth(600);
 
-        logTable.getColumns().addAll(fileCol, lineCol, contentCol);
+        logTable.getColumns().addAll(fileCol, lineCol, tsCol, contentCol);
         logTable.setItems(logData);
 
         // Status bar
@@ -115,15 +119,26 @@ public class MainApp extends Application {
         VBox rightBox = new VBox(12, fileBox, searchBox);
         rightBox.setPadding(new Insets(8));
 
+        // Existing UI (file explorer + search)
         SplitPane splitPane = new SplitPane(leftBox, rightBox);
         splitPane.setDividerPositions(0.35);
 
-        BorderPane root = new BorderPane();
-        root.setTop(new VBox(formGrid, topButtons));
-        root.setCenter(splitPane);
-        root.setBottom(statusLabel);
+        BorderPane explorerRoot = new BorderPane();
+        explorerRoot.setTop(new VBox(formGrid, topButtons));
+        explorerRoot.setCenter(splitPane);
+        explorerRoot.setBottom(statusLabel);
 
-        Scene scene = new Scene(root, 1200, 800);
+        Tab explorerTab = new Tab("Explorer");
+        explorerTab.setContent(explorerRoot);
+        explorerTab.setClosable(false);
+
+        // New terminal tab
+        Tab terminalTab = createTerminalTab();
+
+        // TabPane with both
+        TabPane tabPane = new TabPane(explorerTab, terminalTab);
+
+        Scene scene = new Scene(tabPane, 1000, 700);
         stage.setScene(scene);
         stage.setTitle("SSH Log Search & Browser Tool");
         stage.show();
@@ -249,9 +264,9 @@ public class MainApp extends Application {
                 String[] lines = out.split("\n");
                 for (String line : lines) {
                     if (line.isBlank()) continue;
-                    String[] parts = line.split(":", 3);
-                    if (parts.length == 3) {
-                        logData.add(new LogResult(parts[0], parts[1], parts[2]));
+                    String[] parts = line.split("\\|", 4);
+                    if (parts.length == 4) {
+                        logData.add(new LogResult(parts[0], parts[1], parts[2], parts[3]));
                     }
                 }
                 Platform.runLater(() -> setStatus("Search complete ✅", Color.LIMEGREEN));
@@ -312,13 +327,53 @@ public class MainApp extends Application {
     public static class LogResult {
         String file;
         String line;
+        String timestamp;
         String content;
 
-        LogResult(String file, String line, String content) {
+        LogResult(String file, String line, String timestamp, String content) {
             this.file = file;
             this.line = line;
+            this.timestamp = timestamp;
             this.content = content;
         }
+    }
+
+    private Tab createTerminalTab() {
+        Tab terminalTab = new Tab("Terminal");
+
+        VBox layout = new VBox(10);
+        layout.setPadding(new Insets(10));
+
+        TextArea terminalOutput = new TextArea();
+        terminalOutput.setEditable(false);
+        terminalOutput.setWrapText(true);
+
+        TextField commandInput = new TextField();
+        commandInput.setPromptText("Enter command and press Enter...");
+
+        // When user presses Enter, execute command
+        commandInput.setOnAction(e -> {
+            String command = commandInput.getText().trim();
+            if (!command.isEmpty() && sshConnector != null && sshConnector.isConnected()) {
+                try {
+                    String output = sshConnector.runCommand(command);
+                    terminalOutput.appendText("\n$ " + command + "\n" + output + "\n");
+                } catch (Exception ex) {
+                    terminalOutput.appendText("\n[ERROR] " + ex.getMessage() + "\n");
+                }
+                commandInput.clear();
+            } else {
+                terminalOutput.appendText("\n[!] Not connected to server.\n");
+            }
+        });
+
+        VBox.setVgrow(terminalOutput, Priority.ALWAYS); // allow output to expand
+        layout.getChildren().addAll(new Label("Remote Terminal:"), terminalOutput, commandInput);
+
+        terminalTab.setContent(layout);
+        terminalTab.setClosable(false);
+
+        return terminalTab;
     }
 
     public static void main(String[] args) {
